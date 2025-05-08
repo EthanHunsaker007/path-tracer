@@ -1,0 +1,14 @@
+[package]
+name = "ray_tracer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winit = { version = "0.29", features = ["android-native-activity"] }
+env_logger = "0.10"
+log = "0.4"
+wgpu = "25.0"
+pollster = "0.3"
+cgmath = "0.18"
+bytemuck = { version = "1.16", features = [ "derive" ]}
+rand = "0.9"
