@@ -16,7 +16,8 @@ impl BindGroups {
     pub fn new(
         device: &wgpu::Device,
         sampler: &wgpu::Sampler,
-        sphere_buffer: &wgpu::Buffer,
+        vertex_buffer: &wgpu::Buffer,
+        tri_buffer: &wgpu::Buffer,
         material_buffer: &wgpu::Buffer,
         camera_buffer: &wgpu::Buffer,
         frame_buffer: &Option<wgpu::Buffer>,
@@ -46,6 +47,16 @@ impl BindGroups {
                         min_binding_size: None,
                     },
                     count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 }],
             });
 
@@ -54,11 +65,15 @@ impl BindGroups {
             layout: &scene_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: sphere_buffer.as_entire_binding(),
+                resource: material_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: material_buffer.as_entire_binding(),
+                resource: vertex_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: tri_buffer.as_entire_binding(),
             }],
         });
         
@@ -335,20 +350,24 @@ impl BindGroups {
     pub fn rebuild_scene_bind_group(
         &mut self,
         device: &wgpu::Device,
-        sphere_buffer: &wgpu::Buffer,
         material_buffer: &wgpu::Buffer,
-
+        vertex_buffer: &wgpu::Buffer,
+        tri_buffer: &wgpu::Buffer,
     ) {
         self.scene_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Scene Bind Group"),
             layout: &self.scene_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: sphere_buffer.as_entire_binding(),
+                resource: material_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: material_buffer.as_entire_binding(),
+                resource: vertex_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: tri_buffer.as_entire_binding(),
             }],
         });
     }

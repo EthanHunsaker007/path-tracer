@@ -106,7 +106,7 @@ impl Keys {
 pub struct InputHandler {
     pub bindings: HashMap<KeyCode, [Action; 3]>,
     pub flags: InputFlags,
-    pub context: Context,
+    pub _context: Context,
     pub keys: Keys,
     pub mouse: Mouse,
 }
@@ -166,7 +166,7 @@ impl InputHandler {
         Self {
             flags,
             bindings,
-            context: Context::InGame,
+            _context: Context::InGame,
             keys: Keys::new(),
             mouse: Mouse::new(),
         }

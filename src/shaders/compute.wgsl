@@ -39,22 +39,18 @@ struct Material {
     ior: vec4<f32>,
 }
 
-struct Sphere {
-    pos_and_rad: vec4<f32>,
-    material: vec4<u32>
-}
-
 struct GlassRefract {
     direction: vec3<f32>,
     attenuation: vec3<f32>,
 }
 
-
-
-
-
-
-
+struct HitInfo {
+    hit: bool,
+    front: bool,
+    t: f32,
+    material: Material,
+    normal: vec3<f32>,
+}
 
 
 
@@ -73,9 +69,11 @@ var<uniform> frame: FrameUniform;
 var<uniform> camera: CameraUniform;
 
 @group(2) @binding(0)
-var<storage, read> sphere_buffer: array<Sphere>;
-@group(2) @binding(1)
 var<storage, read> material_buffer: array<Material>;
+@group(2) @binding(1)
+var<storage, read> vertex_buffer: array<vec4<f32>>;
+@group(2) @binding(2)
+var<storage, read> tri_buffer: array<vec4<u32>>;
 
 @group(3) @binding(0)
 var<storage, read> read_frame_buffer: array<vec4<f32>>;
@@ -120,32 +118,30 @@ fn raytrace(
             var bounce_color = vec3<f32>(1.0);
 
             for (var bounces: u32 = 0; bounces < 10; bounces++) {
-                let t_and_pointer = sphere_intersect(ray);
+                let hit = intersect(ray);
 
-                if t_and_pointer.x != INF {
+                if hit.hit == true {
                     seed = seed ^ bounces * 374761393u;
-                    let sphere = sphere_buffer[u32(t_and_pointer.y)];
-                    let material = material_buffer[sphere.material.x];
 
-                    if length(material.emission_and_roughness.xyz) > 0.00001 {
-                        sample_color += bounce_color * material.emission_and_roughness.xyz;
+                    if length(hit.material.emission_and_roughness.xyz) > 0.0001 {
+                        sample_color += bounce_color * hit.material.emission_and_roughness.xyz;
                     }
 
-                    var intersection = ray.origin + ray.direction * t_and_pointer.x;
-                    let n = normalize(intersection - sphere.pos_and_rad.xyz);
+                    var intersection = ray.origin + ray.direction * hit.t;
                     ray.origin = intersection;
 
-                    if material.albedo_and_mat.w == 0 {
-                        ray.direction = normalize(diffuse_bounce(material, ray, n, seed));
-                        bounce_color *= material.albedo_and_mat.xyz;
-                    } else if material.albedo_and_mat.w == 1 {
-                        ray.direction = normalize(metallic_bounce(material, ray, n, seed));
-                        bounce_color *= material.albedo_and_mat.xyz;
-                    } else if material.albedo_and_mat.w == 2 {
-                        let refraction = transparent_material(material, ray, n, seed, t_and_pointer.x);
+                    if hit.material.albedo_and_mat.w == 0 {
+                        ray.direction = normalize(diffuse_bounce(hit.material, ray, hit.normal, seed));
+                        bounce_color *= hit.material.albedo_and_mat.xyz;
+                    } else if hit.material.albedo_and_mat.w == 1 {
+                        ray.direction = normalize(metallic_bounce(hit.material, ray, hit.normal, seed));
+                        bounce_color *= hit.material.albedo_and_mat.xyz;
+                    } else if hit.material.albedo_and_mat.w == 2 {
+                        let refraction = transparent_material(hit.material, ray, hit.normal, seed, hit.t, hit.front);
                         ray.direction = normalize(refraction.direction);
                         bounce_color *= refraction.attenuation;
                     }
+                    
                 } else {
 //                    bounce_color *= vec3<f32>(0.0);
                     pixel_color += bounce_color * mix(bottom_color, top_color, (1.0 + ray.direction.y) * 0.5);
@@ -172,37 +168,60 @@ fn trace_ray(origin: vec3<f32>, point: vec3<f32>) -> Ray {
     return ray;
 }
 
-fn sphere_intersect(ray: Ray) -> vec2<f32> {
+fn intersect(ray: Ray) -> HitInfo {
     var t = -1.0;
     var new_t = INF;
     var pointer: i32 = -1;
+    var n: vec3<f32>;
+    var final_tri: vec4<u32>;
 
-    for (var i: u32 = 0; i < arrayLength(&sphere_buffer); i++) {
-        let sphere = sphere_buffer[i];
-        let oc = sphere.pos_and_rad.xyz - ray.origin;
-        let h = dot(ray.direction, oc);
-        let c = length(oc) * length(oc) - sphere.pos_and_rad.w * sphere.pos_and_rad.w;
-        let d = h * h - c;
+    for (var i: u32 = 0; i < arrayLength(&tri_buffer); i++) {
+        let tri = tri_buffer[i];
+        let e1 = vertex_buffer[tri.y].xyz - vertex_buffer[tri.x].xyz;
+        let e2 = vertex_buffer[tri.z].xyz - vertex_buffer[tri.x].xyz;
+        let p_vec = cross(ray.direction, e2);
+        let d = dot(e1, p_vec);
 
-        if d >= 0 {
-            let sqrt_d = sqrt(d);
-            let t0 = h - sqrt_d;
-            let t1 = h + sqrt_d;
+        if d < 0.0001 && d > -0.0001 {continue;}
 
-            var t_near = min(t0, t1);
-            var t_far = max(t0, t1);
+        let inv_d = 1.0 / d;
+        let t_vec = ray.origin - vertex_buffer[tri.x].xyz;
+        let u = dot(t_vec, p_vec) * inv_d;
 
-            if t_near > 0.001 && t_near < new_t {
-                new_t = t_near;
-                pointer = i32(i);
-            } else if t_far > 0.001 && t_far < new_t {
-                new_t = t_far;
-                pointer = i32(i);
-            }
+        if u < 0 || u > 1 {continue;}
+
+        let q_vec = cross(t_vec, e1);
+        let v = dot(ray.direction, q_vec) * inv_d;
+
+        if v < 0 || u + v > 1 {continue;}
+
+        t = dot(e2, q_vec) * inv_d;
+
+        if t > 0.0001 && t < new_t {
+            new_t = t;
+            n = cross(e2, e1);
+            final_tri = tri;
         }
     }
 
-    return vec2<f32>(new_t, f32(pointer));
+    if new_t < INF {
+        let front = dot(n, ray.direction) < 0;
+        return HitInfo(
+            true,
+            front,
+            new_t,
+            material_buffer[final_tri.w],
+            select(-n, n, front),
+        );
+    }
+
+    return HitInfo(
+        false,
+        false,
+        INF,
+        material_buffer[0],
+        vec3<f32>(0.0),
+    );
 }
 
 fn pcg_randu32(hash: u32) -> u32 {
@@ -254,24 +273,22 @@ fn metallic_bounce(material: Material, in_ray: Ray, normal: vec3<f32>, rng_seed:
     return phong_reflect(rng_seed, exponent, reflection);
 }
 
-fn transparent_material(material: Material, in_ray: Ray, normal: vec3<f32>, rng_seed: u32, t: f32) -> GlassRefract {
-    let front = dot(in_ray.direction, normal) < 0;
+fn transparent_material(material: Material, in_ray: Ray, normal: vec3<f32>, rng_seed: u32, t: f32, front: bool) -> GlassRefract {
     var index = select(material.ior.x, 1.0 / material.ior.x, front);
-    let ray_normal = select(-normal, normal, front);
     var refraction: GlassRefract;
 
-    let cos_theta = min(dot(-in_ray.direction, ray_normal), 1.0);
+    let cos_theta = min(dot(-in_ray.direction, normal), 1.0);
     let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
 
     let reflection_chance = schlicke(cos_theta, index);
 
     if index * sin_theta > 1.0 || reflection_chance > pcg_randf32(rng_seed) {
-        refraction.direction = reflect(in_ray.direction, ray_normal);
+        refraction.direction = reflect(in_ray.direction, normal);
         refraction.attenuation = vec3<f32>(1.0);
         return refraction;
     }
 
-    refraction.direction = refract(in_ray.direction, ray_normal, index);
+    refraction.direction = refract(in_ray.direction, normal, index);
 
     if front {
         refraction.attenuation = vec3<f32>(1.0);

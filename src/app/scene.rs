@@ -1,13 +1,8 @@
-use rand::prelude::*;
+//use rand::prelude::*;
 use std::vec;
+use rand::Rng;
 use wgpu::util::DeviceExt;
-
-#[repr(C)]
-#[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Sphere {
-    pos_and_rad: [f32; 4],
-    material: [u32; 4],
-}
+use crate::mesh::*;
 
 #[repr(C)]
 #[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -29,104 +24,75 @@ impl Material {
 
 pub struct Scene {
     pub materials: Vec<Material>,
-    pub spheres: Vec<Sphere>,
-    pub sphere_buffer: wgpu::Buffer,
+    pub vertices: Vec<[f32; 4]>,
+    pub tris: Vec<[u32; 4]>,
     pub material_buffer: wgpu::Buffer,
+    pub vertex_buffer: wgpu::Buffer,
+    pub tri_buffer: wgpu::Buffer,
 }
 
 impl Scene {
     pub fn new(device: &wgpu::Device) -> Scene {
-        let materials: Vec<Material> = vec![Material::default()];
-        let spheres: Vec<Sphere> = vec![Sphere::default()];
+        let materials = vec![Material::default()];
+        let vertices = vec![[0.0; 4]];
+        let tris = vec![[0; 4]];
 
-        let sphere_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Scene Buffer"),
-            contents: bytemuck::cast_slice(&spheres),
+        let material_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Material Buffer"),
+            contents: bytemuck::cast_slice(&materials),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let material_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Scene Buffer"),
-            contents: bytemuck::cast_slice(&materials),
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let tri_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Triangle Buffer"),
+            contents: bytemuck::cast_slice(&tris),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         Scene {
             materials,
-            spheres,
-            sphere_buffer,
+            vertices,
+            tris,
             material_buffer,
+            vertex_buffer,
+            tri_buffer
         }
     }
 
-    pub fn add_sphere(&mut self, radius: f32, pos: [f32; 3], material: u32) {
-        self.spheres.push(Sphere {
-            pos_and_rad: [pos[0], pos[1], pos[2], radius],
-            material: [material, 0, 0, 0],
-        });
-    }
-
-    pub fn setup_test_scene(&mut self, sphere_count: u32, device: &wgpu::Device) {
-        self.spheres.clear();
+    pub fn setup_test_scene(&mut self, device: &wgpu::Device) {
         self.materials.clear();
+        self.vertices.clear();
+        self.tris.clear();
+
         self.materials
-            .push(Material::new([0.5; 3], [0.0; 3], 0.0, 0.0, 0.0));
+            .push(Material::new([rand::rng().random::<f32>(), rand::rng().random::<f32>(), rand::rng().random::<f32>()], [0.0; 3], 2.0, 0.5, 1.5));
 
-        for _i in 1..sphere_count {
-            let emission: [f32; 3] = if rand::rng().random::<f32>() > 0.8 {
-                [
-                    rand::rng().random::<f32>().powf(1.0 / 2.0),
-                    rand::rng().random::<f32>().powf(1.0 / 2.0),
-                    rand::rng().random::<f32>().powf(1.0 / 2.0),
-                ]
-            } else {
-                [0.0; 3]
-            };
-            let rough_rand = rand::rng().random::<f32>();
-            let roughness = if rough_rand > 0.9 {
-                0.0
-            } else if rough_rand > 0.2 {
-                1.0
-            } else {
-                rand::rng().random::<f32>()
-            };
-            self.materials.push(Material::new(
-                [
-                    rand::rng().random::<f32>(),
-                    rand::rng().random::<f32>(),
-                    rand::rng().random::<f32>(),
-                ],
-                emission,
-                rand::rng().random_range(0..3) as f32,
-                roughness,
-                1.5,
-            ));
-        }
+        (self.vertices, self.tris) = parse_obj("models/apple.obj");
 
-        for i in 1..sphere_count {
-            self.add_sphere(
-                rand::rng().random::<f32>() * 5.0,
-                [
-                    (rand::rng().random::<f32>() - 0.5) * 100.0,
-                    rand::rng().random::<f32>() * -100.0,
-                    rand::rng().random::<f32>() * 100.0,
-                ],
-                i,
-            );
-
-        }
-        self.add_sphere(2000.0, [0.0, 2013.0, 0.0], 0);
         self.update_material_buffer(device);
-        self.update_sphere_buffer(device);
+        self.update_triangle_buffers(device);
     }
 
-    pub fn update_sphere_buffer(&mut self, device: &wgpu::Device) {
-        self.sphere_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sphere Buffer"),
-            contents: bytemuck::cast_slice(&self.spheres),
+    pub fn update_triangle_buffers(&mut self, device: &wgpu::Device) {
+        self.vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(&self.vertices),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        self.tri_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Triangle Buffer"),
+            contents: bytemuck::cast_slice(&self.tris),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
     }
+
     pub fn update_material_buffer(&mut self, device: &wgpu::Device) {
         self.material_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Material Buffer"),

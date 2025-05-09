@@ -202,15 +202,13 @@ impl<'a> State<'a> {
             config.fov,
         );
         let mut scene = scene::Scene::new(&gpu_context.device);
-        scene.setup_test_scene(100, &gpu_context.device);
-        //        scene.add_sphere(2000.0, [0.5; 3], [0.0, 2000.0, 0.0]);
-        //        scene.add_sphere(1.0, [0.5; 3], [0.0, -1.0, 0.0]);
-        //        scene.update_sphere_buffer(&gpu_context.device);
+        scene.setup_test_scene(&gpu_context.device);
         let textures = Textures::new(&gpu_context.device, &surface_state.size);
         let bind_groups = BindGroups::new(
             &gpu_context.device,
             &gpu_context.sampler,
-            &scene.sphere_buffer,
+            &scene.vertex_buffer,
+            &scene.tri_buffer,
             &scene.material_buffer,
             &camera.buffer,
             &surface_state.frame_info.frame_buffer,

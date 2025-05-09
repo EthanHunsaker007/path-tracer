@@ -66,9 +66,9 @@ impl ActionDispatcher {
                     state.config.speed = speed;
                 }
                 Action::Test => {
-                    state.scene.setup_test_scene(500, &state.gpu_context.device);
+                    state.scene.setup_test_scene(&state.gpu_context.device);
                     
-                    state.bind_groups.rebuild_scene_bind_group(&state.gpu_context.device, &state.scene.sphere_buffer, &state.scene.material_buffer);
+                    state.bind_groups.rebuild_scene_bind_group(&state.gpu_context.device, &state.scene.material_buffer, &state.scene.vertex_buffer, &state.scene.tri_buffer);
                     state.input_handler.flags.camera_has_moved = true;
                 }
                 _ => ()
